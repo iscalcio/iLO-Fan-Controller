@@ -1,7 +1,8 @@
 services:
-  iLO-Fan-Controller:
+  ilo-fan-controller:
     build: .
-    container_name: iLO-Fan-Controller
+    image: iscalcio/ilo-fan-controller:latest
+    container_name: ilo-fan-controller
     restart: always
     ports:
       - "8000:8000"
