@@ -7,7 +7,25 @@
 
 # iLO Fans Controller
 
-Dashboard para monitoramento e controle das ventoinhas em servidores HP ProLiant via iLO 4 desbloqueado.
+Dashboard para monitoramento e controle das ventoinhas em servidores HP ProLiant via iLO 4 desbloqueado. 
+
+Rodando em um DL380 G8 com desbloqueio https://github.com/kendallgoto/ilo4_unlock
+
+Me baseei em alguns projetos interessantes, mas queria algo que desse mais controle, agendamento e outras funcionalidades que acabei implementando
+
+1 - Tela de login simples para segurança
+2 - Suporte a agendamento.
+3 - Suporte a monitoramento com registro de informação sobre a temperatura e velocidade das fans com exportação para arquivo .csv para gerar relatórios, sera retido por 5 anos
+4 - Se necessário pode trocar os dados sobre a ilo como ip do ilo, login e senha
+5 - Pode trocar a porta da aplicação.
+6 - Pode definir uma temperatura de emergencia que os fans ligam em uma determina temperatura, no meu caso deixo 90 para 80% de fan
+7 - Multidioma (BR - US - ES - FR) e também pode escolher entre °C ou °F
+9 - Pode resetar as configurações (Apaga todos os logs)
+10 - Usa poucos recursos, quando está sendo usado, as informações são atualizadas a cara 5s, se não tiver interação em 2 minutos, vai para 1 minuto para atualizar informações do monitoramento, ao fazer logoff (automático se não ter interação em 10 min)
+      atualiza informações de monitoramento a cada 20 minutos.
+11 - Logs do ações do sistema, agendamento e outras ações.
+
+
 
 ## Visão Geral
 
