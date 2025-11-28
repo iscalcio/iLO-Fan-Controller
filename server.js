@@ -56,8 +56,8 @@ const compactHistoryIfNeeded = () => {
 // --- Default Fans on Startup/Restart ---
 const getIloConfigFromEnv = () => ({
   host: (process.env.ILO_HOST || '192.168.15.103').trim(),
-  username: (process.env.ILO_USERNAME || 'fan').trim(),
-  password: (process.env.ILO_PASSWORD || '20134679').trim()
+  username: (process.env.ILO_USERNAME || process.env.ILO_USER || 'fan').trim(),
+  password: (process.env.ILO_PASSWORD || process.env.ILO_PASS || '20134679').trim()
 });
 
 const setDefaultFans = async (percent = 15) => {
@@ -88,8 +88,8 @@ const getIloConfig = (req) => {
   const headers = req ? req.headers : {};
   return {
     host: (headers['x-ilo-host'] || process.env.ILO_HOST || '192.168.15.103').trim(),
-    username: (headers['x-ilo-username'] || process.env.ILO_USERNAME || 'fan').trim(),
-    password: (headers['x-ilo-password'] || process.env.ILO_PASSWORD || '20134679').trim()
+    username: (headers['x-ilo-username'] || process.env.ILO_USERNAME || process.env.ILO_USER || 'fan').trim(),
+    password: (headers['x-ilo-password'] || process.env.ILO_PASSWORD || process.env.ILO_PASS || '20134679').trim()
   };
 };
 
@@ -648,7 +648,7 @@ app.get('/debug/thermal-names', async (req, res) => {
 // SPA Fallback
 app.get('*', (req, res) => res.sendFile(path.join(__dirname, 'dist', 'index.html')));
 
-let CURRENT_PORT = process.env.PORT || 8055;
+let CURRENT_PORT = process.env.PORT || 8000;
 let server = app.listen(CURRENT_PORT, () => { console.log(`Server running on port ${CURRENT_PORT}`); setTimeout(() => { setDefaultFans(15); }, 5000); });
 
 app.post('/api/port', async (req, res) => {

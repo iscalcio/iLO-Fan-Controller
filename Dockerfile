@@ -37,8 +37,8 @@ COPY docker-entrypoint.sh .
 RUN sed -i 's/\r$//' docker-entrypoint.sh && chmod +x docker-entrypoint.sh
 
 # Define a porta
-ENV PORT=80
-EXPOSE 80
+ENV PORT=8000
+EXPOSE 8000
 
 # Define o ponto de entrada
 ENTRYPOINT ["./docker-entrypoint.sh"]

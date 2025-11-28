@@ -1,5 +1,5 @@
 {
-  "name": "ilo-fans-controller",
+  "name": "iLO-Fan-Controller",
   "private": true,
   "version": "1.0.0",
   "type": "module",
