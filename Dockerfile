@@ -7,7 +7,7 @@ WORKDIR /app
 COPY package*.json ./
 
 # Instala todas as dependências (incluindo dev dependencies para o build)
-RUN npm install
+RUN npm ci
 
 # Copia o código fonte
 COPY . .
@@ -24,7 +24,7 @@ WORKDIR /app
 COPY package*.json ./
 
 # Instala apenas dependências de produção (Express, Axios, SSH, etc)
-RUN npm install --omit=dev
+RUN npm ci --omit=dev
 
 # Copia o frontend compilado do estágio anterior
 COPY --from=builder /app/dist ./dist

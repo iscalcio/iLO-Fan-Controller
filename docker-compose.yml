@@ -9,3 +9,13 @@ services:
       - ILO_HOST=${ILO_HOST:-192.168.15.103}
       - ILO_USERNAME=${ILO_USERNAME:-fan}
       - ILO_PASSWORD=${ILO_PASSWORD:-20134679}
+      - SYS_USER=${SYS_USER:-admin}
+      - SYS_PASS=${SYS_PASS:-admin}
+    volumes:
+      - ./data:/app/data
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost/api/auth/info || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
