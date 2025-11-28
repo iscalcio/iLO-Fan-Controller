@@ -1,0 +1,11 @@
+services:
+  ilo-fans-controller:
+    build: .
+    container_name: ilo-fans-controller
+    restart: always
+    ports:
+      - "8055:80"
+    environment:
+      - ILO_HOST=${ILO_HOST:-192.168.15.103}
+      - ILO_USERNAME=${ILO_USERNAME:-fan}
+      - ILO_PASSWORD=${ILO_PASSWORD:-20134679}
