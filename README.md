@@ -1,3 +1,10 @@
+<img width="2647" height="1951" alt="Captura de tela 2025-11-27 223827" src="https://github.com/user-attachments/assets/144ed6a8-4725-4a67-9f97-aae6af94d511" />
+
+<img width="1484" height="1850" alt="Captura de tela 2025-11-27 223853" src="https://github.com/user-attachments/assets/769da7ce-6d4e-4376-9fca-3b700790044f" />
+
+
+
+
 # iLO Fans Controller
 
 Dashboard para monitoramento e controle das ventoinhas em servidores HP ProLiant via iLO 4 desbloqueado.
