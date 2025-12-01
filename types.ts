@@ -28,6 +28,7 @@ export interface ScheduleItem {
   time: string;
   speed: number;
   active: boolean;
+  mode?: 'manual' | 'auto';
 }
 
 export interface LogEntry {

@@ -1,47 +1,22 @@
-# Estágio 1: Build do Frontend (React)
-FROM node:18-alpine as builder
-
+FROM node:18-alpine AS builder
 WORKDIR /app
-
-# Copia arquivos de dependência
-COPY package*.json ./
-
-# Instala todas as dependências (incluindo dev dependencies para o build)
-RUN npm ci
-
-# Copia o código fonte
+COPY package.json package-lock.json* ./
+# Instala dependências de desenvolvimento para build do frontend
+RUN npm install
 COPY . .
-
-# Compila o projeto (gera a pasta dist)
 RUN npm run build
 
-# Estágio 2: Servidor de Produção (Node.js Backend)
-FROM node:18-alpine
-
+FROM node:18-alpine AS runner
 WORKDIR /app
-
-# Copia arquivos de dependência
-COPY package*.json ./
-
-# Instala apenas dependências de produção (Express, Axios, SSH, etc)
-RUN npm ci --omit=dev
-
-# Copia o frontend compilado do estágio anterior
+ENV NODE_ENV=production
+COPY package.json package-lock.json* ./
+# Instala somente dependências de produção
+RUN npm install --omit=dev
+# Copia artefatos de build e servidor
 COPY --from=builder /app/dist ./dist
-
-# Copia o código do backend e script de inicialização
-COPY server.js .
-COPY docker-entrypoint.sh .
-
-# Corrige quebras de linha do Windows (caso existam) e dá permissão de execução
-RUN sed -i 's/\r$//' docker-entrypoint.sh && chmod +x docker-entrypoint.sh
-
-# Define a porta
-ENV PORT=8000
+COPY server.js ./server.js
+# Dados persistentes ficam em /app/data
+VOLUME ["/app/data"]
 EXPOSE 8000
+CMD ["npm","start"]
 
-# Define o ponto de entrada
-ENTRYPOINT ["./docker-entrypoint.sh"]
-
-# Comando para iniciar o servidor
-CMD ["node", "server.js"]

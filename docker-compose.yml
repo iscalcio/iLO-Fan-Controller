@@ -1,22 +1,24 @@
+version: "3.8"
 services:
-  ilo-fan-controller:
-    build: .
+  ilofan:
     image: iscalcio/ilo-fan-controller:latest
-    container_name: ilo-fan-controller
-    restart: always
+    build: .
+    container_name: ilofan-pro
+    labels:
+      - "org.opencontainers.image.title=ilo fan controller"
     ports:
-      - "8000:8000"
+      - "${PORT:-8000}:8000"
     environment:
-      - ILO_HOST=${ILO_HOST:-192.168.15.103}
-      - ILO_USER=${ILO_USER:-fan}
-      - ILO_PASS=${ILO_PASS:-20134679}
-      - SYS_USER=${SYS_USER:-admin}
-      - SYS_PASS=${SYS_PASS:-admin}
+      - NODE_ENV=production
+      - NODE_OPTIONS=--max-old-space-size=256
+      - ILO_HOST=${ILO_HOST}
+      - ILO_USERNAME=${ILO_USERNAME}
+      - ILO_PASSWORD=${ILO_PASSWORD}
+      - FAN_WRITE_COOLDOWN_MS=${FAN_WRITE_COOLDOWN_MS:-60000}
+      - FAN_MIN_DELTA_PERCENT=${FAN_MIN_DELTA_PERCENT:-10}
     volumes:
       - ./data:/app/data
-    healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost/api/auth/info || exit 1"]
-      interval: 30s
-      timeout: 5s
-      retries: 5
-      start_period: 20s
+    mem_limit: 256m
+    cpus: 0.5
+    cpu_shares: 512
+    restart: unless-stopped

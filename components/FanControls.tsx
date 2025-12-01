@@ -1,6 +1,6 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, memo } from 'react';
 import { Fan, Zap, RefreshCw, Settings2, Check, Loader2, Wind } from 'lucide-react';
-import { setFanSpeed, setFanSpeedIndex, getFanStatus, getSensorsData } from '../services/mockService';
+import { setFanSpeed, setFanSpeedIndex, getFanStatus, getSensorsData, setFanAuto, getFanMode } from '../services/mockService';
 import { Translation, IloSettings } from '../types';
 
 interface FanControlsProps {
@@ -14,12 +14,12 @@ interface FanControlsProps {
 
 interface AutoConfig {
   minTemp: number;
-  maxTemp: number;
+  tolerancePct: number;
   minSpeed: number;
   maxSpeed: number;
 }
 
-export function FanControls({ t, settings, onLog, idle, unit = 'C', loggedIn = true }: FanControlsProps) {
+function FanControlsInner({ t, settings, onLog, idle, unit = 'C', loggedIn = true, interacting = false }: FanControlsProps & { interacting?: boolean }) {
   const [speed, setSpeed] = useState(30);
   const [isAuto, setIsAuto] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -31,11 +31,17 @@ export function FanControls({ t, settings, onLog, idle, unit = 'C', loggedIn = t
   const [cpu1, setCpu1] = useState(0);
   const [cpu2, setCpu2] = useState(0);
   const [isConnected, setIsConnected] = useState(false);
+  
+  const [autoLoading, setAutoLoading] = useState(false);
+  const [autoMsg, setAutoMsg] = useState('');
+  const [modeLoading, setModeLoading] = useState(false);
+  const [modeMsg, setModeMsg] = useState('');
+  const [safetyThr, setSafetyThr] = useState<number>(0);
 
   // Configuração do Modo Automático
   const [autoConfig, setAutoConfig] = useState<AutoConfig>(() => {
     const saved = localStorage.getItem('ilo_auto_config');
-    return saved ? JSON.parse(saved) : { minTemp: 40, maxTemp: 70, minSpeed: 15, maxSpeed: 100 };
+    return saved ? JSON.parse(saved) : { minTemp: 58, tolerancePct: 10, minSpeed: 5, maxSpeed: 100 };
   });
 
   const lastAutoSpeedRef = useRef<number>(0);
@@ -105,6 +111,13 @@ export function FanControls({ t, settings, onLog, idle, unit = 'C', loggedIn = t
           if (Object.keys(cleanFanData).length > 0) {
               setIsConnected(true);
               setCurrentReadings(cleanFanData);
+              try {
+                const vals = Object.values(cleanFanData).map(v=>Number(v)).filter(v=>Number.isFinite(v));
+                if (vals.length > 0) {
+                  const avg = Math.round(vals.reduce((a,b)=>a+b,0)/vals.length);
+                  lastAutoSpeedRef.current = avg;
+                }
+              } catch {}
           } else {
               setIsConnected(false);
           }
@@ -116,6 +129,11 @@ export function FanControls({ t, settings, onLog, idle, unit = 'C', loggedIn = t
       setCpu1(Number(sensors.temps.cpu1) || 0);
       setCpu2(Number(sensors.temps.cpu2) || 0);
       setCpuTemp(Math.max(Number(sensors.temps.cpu1)||0, Number(sensors.temps.cpu2)||0));
+      try {
+        const mode = await getFanMode(settings);
+        setIsAuto(mode === 'auto');
+        setModeLoading(false);
+      } catch {}
     } catch (e) {
       console.error(e);
       setIsConnected(false);
@@ -123,39 +141,56 @@ export function FanControls({ t, settings, onLog, idle, unit = 'C', loggedIn = t
   };
 
   useEffect(() => {
-    fetchStatus();
-    const poll = !loggedIn ? 1200000 : (idle ? 15000 : 5000);
-    const interval = setInterval(fetchStatus, poll); 
+    const run = () => { if (interacting) return; fetchStatus(); };
+    run();
+    const poll = !loggedIn ? 1200000 : (interacting ? 20000 : (idle ? 15000 : 5000));
+    const interval = setInterval(run, poll);
     return () => clearInterval(interval);
-  }, [settings, idle, loggedIn]);
+  }, [settings, idle, loggedIn, interacting]);
 
-  // Lógica do Modo Automático
+  // Lógica do Modo Automático com alvo e tolerância
   useEffect(() => {
     if (!isAuto || cpuTemp === 0) return;
-
-    const calculateSpeed = () => {
-      const { minTemp, maxTemp, minSpeed, maxSpeed } = autoConfig;
-      
-      if (cpuTemp <= minTemp) return minSpeed;
-      if (cpuTemp >= maxTemp) return maxSpeed;
-
-      const ratio = (cpuTemp - minTemp) / (maxTemp - minTemp);
-      const calcSpeed = minSpeed + ratio * (maxSpeed - minSpeed);
-      
-      return Math.round(calcSpeed / 5) * 5;
-    };
-
-    const targetSpeed = calculateSpeed();
-
-    if (Math.abs(targetSpeed - lastAutoSpeedRef.current) >= 5) {
-      setFanSpeed(targetSpeed, settings)
-        .then(() => {
-            lastAutoSpeedRef.current = targetSpeed;
-            setSpeed(targetSpeed);
-        })
-        .catch(err => console.error("Auto mode set failed", err));
+    const { minTemp: target, tolerancePct, minSpeed, maxSpeed } = autoConfig;
+    const toleranceAbs = Math.max(0, (tolerancePct / 100) * target);
+    const high = target + toleranceAbs;
+    const delta = Math.abs(cpuTemp - target);
+    const step = delta >= 5 ? 10 : 5;
+    let next = lastAutoSpeedRef.current || Math.max(5, minSpeed);
+    if (cpuTemp > high) {
+      next = Math.min(100, Math.max(next + step, Math.max(5, minSpeed)));
+    } else if (cpuTemp <= target) {
+      next = Math.max(Math.max(5, minSpeed), next - step);
+    } else {
+      next = Math.max(Math.max(5, minSpeed), next);
     }
-  }, [isAuto, cpuTemp, autoConfig, settings]);
+    next = Math.min(100, Math.max(Math.max(5, minSpeed), Math.min(next, maxSpeed)));
+    next = Math.round(next / 5) * 5;
+    if (Math.abs(next - lastAutoSpeedRef.current) >= 5) {
+      lastAutoSpeedRef.current = next;
+      setSpeed(next);
+    }
+  }, [isAuto, cpuTemp, autoConfig]);
+
+
+  
+
+  useEffect(() => {
+    const refreshSafety = () => {
+      try {
+        const raw = localStorage.getItem('ilo_safety')||'';
+        if (raw) {
+          const obj = JSON.parse(raw);
+          const thrC = Number(obj?.thresholdC||0);
+          const val = unit==='F' ? ((thrC*9)/5 + 32) : thrC;
+          setSafetyThr(Number(val.toFixed(1)));
+        }
+      } catch {}
+    };
+    refreshSafety();
+    const id2 = setInterval(refreshSafety, 10000);
+    return () => clearInterval(id2);
+  }, [unit]);
 
   const handleSpeedChange = (newSpeed: number) => {
     setSpeed(newSpeed);
@@ -174,9 +209,13 @@ export function FanControls({ t, settings, onLog, idle, unit = 'C', loggedIn = t
     onLog?.(`Apply fans speed: ${speed}%`, 'info');
     
     try {
-      await setFanSpeed(speed, settings);
+      const resp = await setFanSpeed(speed, settings, true);
       setSuccess(true);
-      onLog?.(`Fans speed applied: ${speed}%`, 'success');
+      if (resp?.uncontrolled && resp.uncontrolled.length > 0) {
+        onLog?.(`Applied ${speed}%. Uncontrolled: ${resp.uncontrolled.join(', ')}`, 'warning');
+      } else {
+        onLog?.(`Fans speed applied: ${speed}%`, 'success');
+      }
       setTimeout(() => setSuccess(false), 3000);
       setTimeout(fetchStatus, 2000); 
     } catch (error) {
@@ -184,8 +223,8 @@ export function FanControls({ t, settings, onLog, idle, unit = 'C', loggedIn = t
       onLog?.(`Failed to apply fans: ${msg}`, 'error');
       try {
         let anySuccess = false;
-        for (let i = 1; i <= 6; i++) {
-          try { await setFanSpeedIndex(i, speed, settings); anySuccess = true; } catch {}
+        for (let i = 0; i <= 8; i++) {
+          try { await setFanSpeedIndex(i, speed, settings, true); anySuccess = true; } catch {}
         }
         if (anySuccess) {
           setSuccess(true);
@@ -204,18 +243,65 @@ export function FanControls({ t, settings, onLog, idle, unit = 'C', loggedIn = t
     }
   };
 
+  const handleToggleMode = async () => {
+    if (modeLoading) return;
+    setModeMsg('');
+    setModeLoading(true);
+    try {
+      const current = await getFanMode(settings);
+      const goingAuto = current !== 'auto';
+      if (goingAuto) {
+        const r = await setFanAuto(settings);
+        if (!r.success) {
+          setIsAuto(false);
+          let emsg = String(r?.error || 'Falha ao ativar automático');
+          try { if (emsg.startsWith('{')) { const j = JSON.parse(emsg); emsg = String(j?.error||emsg); } } catch {}
+          setModeMsg(emsg);
+          onLog?.(`❌ Auto falhou: ${emsg}`, 'error');
+        } else {
+          setIsAuto(true);
+          setModeMsg('Automático ativado');
+          onLog?.('✅ Automático ativado', 'success');
+        }
+      } else {
+        try {
+          onLog?.(`> Command: manual ${speed}%`, 'warning');
+          await setFanSpeed(speed, settings, true);
+          setIsAuto(false);
+          setModeMsg('Manual ativado');
+          onLog?.('✅ Manual ativado', 'success');
+        } catch (e: any) {
+          setIsAuto(false);
+          const msg = String(e?.message||'Falha ao aplicar manual');
+          setModeMsg(msg);
+          onLog?.(`❌ Manual falhou: ${msg}`, 'error');
+        }
+      }
+      await fetchStatus();
+    } catch (e: any) {
+      setModeMsg(String(e?.message||'Falha ao alternar modo'));
+    } finally {
+      setModeLoading(false);
+    }
+  };
+
   const fmt = (v: number) => {
     if (v <= 0 || isNaN(v)) return '--';
     return unit === 'F' ? String(((v * 9) / 5 + 32).toFixed(1)) : String(v.toFixed(1));
   };
 
   return (
-    <div className="bg-slate-800 p-6 rounded-lg border border-slate-700 shadow-lg flex flex-col h-full justify-between">
+    <div className="bg-slate-800 p-6 rounded-lg border border-slate-700 shadow-lg flex flex-col h-full justify-between min-h-[360px]">
       <div>
           <div className="flex justify-between items-center mb-4">
           <h2 className="text-xl font-bold text-white flex items-center gap-2">
             <Fan className={theme.text} />
             {t.fanControl}
+            {safetyThr>0 && (
+              <span className="ml-3 px-2 py-1 rounded bg-slate-700 text-slate-200 text-xs flex items-center gap-1" title="Proteção de temperatura">
+                Prot: {safetyThr}°{unit}
+              </span>
+            )}
           </h2>
           <div className="flex items-center gap-2">
             <button onClick={fetchStatus} className="text-slate-500 hover:text-white" title="Refresh Status">
@@ -225,10 +311,11 @@ export function FanControls({ t, settings, onLog, idle, unit = 'C', loggedIn = t
               {isAuto ? t.autoMode : t.manualControl}
             </span>
             <button
-              onClick={() => setIsAuto(!isAuto)}
+              onClick={handleToggleMode}
+              disabled={modeLoading}
               className={`w-10 h-5 rounded-full p-1 transition-colors ${
                 isAuto ? 'bg-green-500' : 'bg-slate-600'
-              }`}
+              } disabled:opacity-60`}
             >
               <div
                 className={`w-3.5 h-3.5 rounded-full bg-white transition-transform ${
@@ -236,6 +323,9 @@ export function FanControls({ t, settings, onLog, idle, unit = 'C', loggedIn = t
                 }`}
               />
             </button>
+            {modeMsg && (
+              <span className="ml-2 text-xs text-slate-300">{modeMsg}</span>
+            )}
           </div>
         </div>
 
@@ -293,7 +383,7 @@ export function FanControls({ t, settings, onLog, idle, unit = 'C', loggedIn = t
             </div>
             <input
               type="range"
-              min="10"
+              min="5"
               max="100"
               step="5"
               value={speed}
@@ -303,7 +393,7 @@ export function FanControls({ t, settings, onLog, idle, unit = 'C', loggedIn = t
           </div>
           
           <div className={`grid grid-cols-3 gap-2 ${isAuto ? 'pointer-events-none opacity-50' : ''}`}>
-            <button onClick={() => handleSpeedChange(15)} className={`px-2 py-2 rounded-lg font-medium transition-colors flex flex-col items-center gap-1 border ${speed === 15 ? `bg-slate-600 border-emerald-500 text-white` : 'bg-slate-700 border-transparent text-slate-300 hover:bg-slate-600'}`}>
+            <button onClick={() => handleSpeedChange(5)} className={`px-2 py-2 rounded-lg font-medium transition-colors flex flex-col items-center gap-1 border ${speed === 5 ? `bg-slate-600 border-emerald-500 text-white` : 'bg-slate-700 border-transparent text-slate-300 hover:bg-slate-600'}`}>
               <div className="w-2 h-2 bg-emerald-400 rounded-full" />
               <span className="text-xs">{t.minimum}</span>
             </button>
@@ -329,7 +419,7 @@ export function FanControls({ t, settings, onLog, idle, unit = 'C', loggedIn = t
                 
                 <div className="grid grid-cols-2 gap-4 mb-2">
                     <div>
-                        <label className="text-xs text-slate-400 block mb-1">{t.minTemp}</label>
+                        <label className="text-xs text-slate-400 block mb-1">Temperatura alvo</label>
                         <input 
                             type="number" 
                             value={autoConfig.minTemp}
@@ -338,16 +428,53 @@ export function FanControls({ t, settings, onLog, idle, unit = 'C', loggedIn = t
                         />
                     </div>
                     <div>
-                        <label className="text-xs text-slate-400 block mb-1">{t.maxTemp}</label>
+                        <label className="text-xs text-slate-400 block mb-1">Tolerância (%)</label>
                         <input 
                             type="number" 
-                            value={autoConfig.maxTemp}
-                            onChange={(e) => setAutoConfig({...autoConfig, maxTemp: Number(e.target.value)})}
+                            value={autoConfig.tolerancePct}
+                            onChange={(e) => setAutoConfig({...autoConfig, tolerancePct: Math.min(50, Math.max(0, Number(e.target.value)||10))})}
                             className="w-full bg-slate-800 border border-slate-600 rounded px-2 py-1 text-sm text-white"
                         />
                     </div>
                 </div>
+                <div className="grid grid-cols-2 gap-4 mb-2">
+                    <div>
+                        <label className="text-xs text-slate-400 block mb-1">Velocidade mínima (%) [5–100]</label>
+                        <input 
+                            type="number" 
+                            min={5}
+                            max={100}
+                            value={autoConfig.minSpeed}
+                            onChange={(e) => setAutoConfig({...autoConfig, minSpeed: Math.min(100, Math.max(5, Number(e.target.value)||5))})}
+                            className="w-full bg-slate-800 border border-slate-600 rounded px-2 py-1 text-sm text-white"
+                        />
+                    </div>
+                </div>
+                <p className="text-slate-500 text-xs italic mt-2 text-center">Proteção ativa: alvo {autoConfig.minTemp}° ± {autoConfig.tolerancePct}%</p>
                 <p className="text-slate-500 text-xs italic mt-2 text-center">{t.autoModeDesc}</p>
+                <div className="mt-4">
+                  <button
+                    type="button"
+                    onClick={async ()=>{
+                      if (autoLoading) return;
+                      setAutoLoading(true);
+                      setAutoMsg('');
+                      try {
+                        const r = await setFanAuto(settings);
+                        if (r?.success) setAutoMsg('Modo automático ativado');
+                        else setAutoMsg('Falha ao ativar automático');
+                        await fetchStatus();
+                      } catch { setAutoMsg('Falha ao ativar automático'); }
+                      setAutoLoading(false);
+                    }}
+                    disabled={autoLoading}
+                    className={`w-full py-2 ${theme.bg} ${theme.hover} ${theme.shadow} disabled:opacity-60 disabled:cursor-not-allowed text-white rounded-lg font-bold shadow-lg transition-all`}
+                  >
+                    {autoLoading ? 'Aplicando…' : 'Ativar Automático'}
+                  </button>
+                  
+                  {autoMsg && (<div className="mt-2 text-center text-xs text-slate-300">{autoMsg}</div>)}
+                </div>
             </div>
         ) : (
             <>
@@ -377,9 +504,13 @@ export function FanControls({ t, settings, onLog, idle, unit = 'C', loggedIn = t
                         </span>
                     </div>
                 )}
+
+
             </>
         )}
       </div>
     </div>
   );
 }
+
+export const FanControls = memo(FanControlsInner);
